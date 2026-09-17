@@ -1,0 +1,6 @@
+{
+  "auth.unauthorized": "يجب تسجيل الدخول أولاً",
+  "auth.forbidden": "ليس لديك صلاحية لتنفيذ هذا الإجراء",
+  "patient.notFound": "المريض غير موجود",
+  "validation.failed": "البيانات المدخلة غير صحيحة"
+}
