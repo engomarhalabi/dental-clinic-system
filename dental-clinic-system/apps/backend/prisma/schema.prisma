@@ -1,6 +1,5 @@
-// ==========================================
-// نظام إدارة عيادة الأسنان — Prisma Schema
-// ==========================================
+// نظام إدارة عيادة الأسنان - Prisma Schema
+// المرحلة 1: البنية التحتية الأساسية
 
 generator client {
   provider = "prisma-client-js"
@@ -11,262 +10,213 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---------- Enums ----------
+// ==================== المستخدمون والأدوار ====================
 
 enum Role {
-  ADMIN
-  DENTIST
-  RECEPTIONIST
-  ACCOUNTANT
+  ADMIN         // مدير
+  DENTIST       // طبيب
+  RECEPTIONIST  // استقبال
+  ACCOUNTANT    // محاسب
 }
-
-enum Language {
-  AR
-  EN
-}
-
-enum AppointmentStatus {
-  SCHEDULED
-  COMPLETED
-  CANCELLED
-  NO_SHOW
-}
-
-enum TreatmentPlanStatus {
-  ONGOING
-  COMPLETED
-  CANCELLED
-}
-
-enum InvoiceStatus {
-  UNPAID
-  PARTIAL
-  PAID
-}
-
-enum PaymentMethod {
-  CASH
-  CARD
-  BANK_TRANSFER
-  OTHER
-}
-
-enum WhatsAppMessageType {
-  VISIT_SUMMARY
-  APPOINTMENT_REMINDER
-  OTHER
-}
-
-enum WhatsAppStatus {
-  PENDING
-  SENT
-  FAILED
-}
-
-// ---------- Core: Users & Roles ----------
 
 model User {
-  id            String   @id @default(cuid())
-  fullName      String
-  email         String   @unique
-  passwordHash  String
-  role          Role
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(uuid())
+  fullName     String
+  email        String   @unique
+  password     String   // مشفرة bcrypt
+  role         Role
+  phone        String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  dentistProfile   DentistProfile?
-  chairShifts      ChairShift[]        @relation("DentistShifts")
-  appointments     Appointment[]       @relation("AppointmentDentist")
-  toothProcedures  ToothProcedure[]    @relation("PerformedBy")
-  paymentsReceived Payment[]           @relation("ReceivedBy")
+  // علاقات: الطبيب مرتبط بالمواعيد والزيارات وسجل تاريخ السن كمنفذ للإجراء
+  appointments Appointment[] @relation("DentistAppointments")
+  visits       Visit[]       @relation("DentistVisits")
+  toothHistory ToothHistory[] @relation("PerformedBy")
 
   @@map("users")
 }
 
-model DentistProfile {
-  id         String  @id @default(cuid())
-  userId     String  @unique
-  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  specialty  String?
-  notes      String?
-
-  @@map("dentist_profiles")
-}
-
-// ---------- Clinic Structure: Chairs & Shifts ----------
+// ==================== الكراسي / الوحدات ====================
 
 model Chair {
-  id           String   @id @default(cuid())
-  name         String   // مثال: "كرسي 1" / "Chair 1"
-  locationNote String?
-  isActive     Boolean  @default(true)
+  id           String        @id @default(uuid())
+  name         String        // مثال: كرسي 1، كرسي 2
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
 
-  shifts       ChairShift[]
   appointments Appointment[]
 
   @@map("chairs")
 }
 
-// يحل علاقة N:N بين الكرسي والطبيب عبر فترات زمنية محددة
-model ChairShift {
-  id        String   @id @default(cuid())
-  chairId   String
-  chair     Chair    @relation(fields: [chairId], references: [id], onDelete: Cascade)
-  dentistId String
-  dentist   User     @relation("DentistShifts", fields: [dentistId], references: [id], onDelete: Cascade)
-  dayOfWeek Int      // 0-6 (الأحد-السبت) لجدول أسبوعي متكرر
-  startTime String   // "09:00"
-  endTime   String   // "14:00"
+// ==================== المرضى ====================
 
-  @@map("chair_shifts")
+enum Gender {
+  MALE
+  FEMALE
 }
 
-// ---------- Patients ----------
-
 model Patient {
-  id                 String    @id @default(cuid())
-  fullName           String
-  phone              String
-  dateOfBirth        DateTime?
-  gender             String?
-  address            String?
-  medicalHistoryNote String?
-  preferredLanguage  Language  @default(AR)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  fullName      String
+  phone         String
+  whatsapp      String?   // رقم واتساب لإرسال الرسائل التلقائية (قد يختلف عن الهاتف)
+  dateOfBirth   DateTime?
+  gender        Gender?
+  address       String?
+  medicalNotes  String?   // ملاحظات طبية عامة (حساسية، أمراض مزمنة...)
+  fileNumber    String?   @unique // رقم ملف المريض (اختياري)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  appointments    Appointment[]
-  treatmentPlans  TreatmentPlan[]
-  toothProcedures ToothProcedure[]
-  invoices        Invoice[]
-  whatsappLogs    WhatsAppLog[]
+  appointments  Appointment[]
+  visits        Visit[]
+  toothRecords  ToothRecord[]
+  invoices      Invoice[]
 
+  @@index([phone])
+  @@index([fullName])
   @@map("patients")
 }
 
-// ---------- Appointments ----------
+// ==================== المواعيد ====================
+
+enum AppointmentStatus {
+  SCHEDULED   // محجوز
+  CONFIRMED   // مؤكد
+  COMPLETED   // منجز
+  CANCELLED   // ملغى
+  NO_SHOW     // لم يحضر
+}
 
 model Appointment {
-  id          String            @id @default(cuid())
+  id          String            @id @default(uuid())
   patientId   String
-  patient     Patient           @relation(fields: [patientId], references: [id])
-  chairId     String
-  chair       Chair             @relation(fields: [chairId], references: [id])
-  dentistId   String
-  dentist     User              @relation("AppointmentDentist", fields: [dentistId], references: [id])
-  treatmentPlanId String?
-  treatmentPlan   TreatmentPlan? @relation(fields: [treatmentPlanId], references: [id])
+  patient     Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  scheduledAt DateTime
+  dentistId   String?
+  dentist     User?             @relation("DentistAppointments", fields: [dentistId], references: [id])
+
+  chairId     String?
+  chair       Chair?            @relation(fields: [chairId], references: [id])
+
+  scheduledAt DateTime          // تاريخ ووقت الموعد
   durationMin Int               @default(30)
   status      AppointmentStatus @default(SCHEDULED)
   notes       String?
+
   createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
-  toothProcedures ToothProcedure[]
-  whatsappLogs    WhatsAppLog[]
+  visit       Visit?            // الزيارة الناتجة عن هذا الموعد (إن وجدت)
 
-  @@index([chairId, scheduledAt])
+  @@index([scheduledAt])
+  @@index([patientId])
   @@map("appointments")
 }
 
-// ---------- Treatments & Billing ----------
+// ==================== الزيارات ====================
 
-// كتالوج ثابت لأنواع العلاج (ثنائي اللغة)
-model TreatmentType {
-  id           String  @id @default(cuid())
-  nameAr       String
-  nameEn       String
-  defaultPrice Decimal @db.Decimal(10, 2)
-  description  String?
+model Visit {
+  id            String    @id @default(uuid())
+  patientId     String
+  patient       Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  treatmentPlans TreatmentPlan[]
+  appointmentId String?   @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
 
-  @@map("treatment_types")
+  dentistId     String?
+  dentist       User?     @relation("DentistVisits", fields: [dentistId], references: [id])
+
+  visitDate     DateTime  @default(now())
+  diagnosis     String?   // التشخيص
+  doctorNotes   String?   // ملاحظات الطبيب على الزيارة
+  followUpAt    DateTime? // موعد متابعة مقترح
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  toothHistory  ToothHistory[]
+  invoice       Invoice?
+
+  @@index([patientId])
+  @@map("visits")
 }
 
-model TreatmentPlan {
-  id              String               @id @default(cuid())
-  patientId       String
-  patient         Patient              @relation(fields: [patientId], references: [id])
-  treatmentTypeId String
-  treatmentType   TreatmentType        @relation(fields: [treatmentTypeId], references: [id])
-  status          TreatmentPlanStatus  @default(ONGOING)
-  totalPrice      Decimal              @db.Decimal(10, 2)
-  startDate       DateTime             @default(now())
-  notes           String?
+// ==================== المخطط السني (الأسنان) ====================
+// نظام ترقيم FDI (11, 12, 13... 48)
 
-  appointments    Appointment[]
-  toothProcedures ToothProcedure[]
-  invoices        Invoice[]
+model ToothRecord {
+  id            String   @id @default(uuid())
+  patientId     String
+  patient       Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  @@map("treatment_plans")
+  toothNumber   String   // ترقيم FDI مثل "11", "26", "48"
+  currentStatus String?  // الحالة الحالية للسن: سليم/محشو/مقلوع/تاج... الخ
+  notes         String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  history       ToothHistory[]
+
+  @@unique([patientId, toothNumber]) // سن واحد لكل مريض بسجل واحد
+  @@map("tooth_records")
 }
 
-// سجل تاريخي دائم (Event Log) — لا يُحدَّث، فقط يُضاف
-model ToothProcedure {
-  id              String         @id @default(cuid())
-  patientId       String
-  patient         Patient        @relation(fields: [patientId], references: [id])
-  toothNumberFdi  String         // مثال: "11", "48"
-  appointmentId   String?
-  appointment     Appointment?   @relation(fields: [appointmentId], references: [id])
-  treatmentPlanId String?
-  treatmentPlan   TreatmentPlan? @relation(fields: [treatmentPlanId], references: [id])
-  performedById   String
-  performedBy     User           @relation("PerformedBy", fields: [performedById], references: [id])
+// سجل تاريخ كل إجراء تم على سن معين (الأهم لتتبع تاريخ العلاج بالكامل)
 
-  procedureType   String   // مثال: "حشو", "خلع", "تنظيف"
-  notes           String?
-  performedAt     DateTime @default(now())
+model ToothHistory {
+  id            String       @id @default(uuid())
+  toothRecordId String
+  toothRecord   ToothRecord  @relation(fields: [toothRecordId], references: [id], onDelete: Cascade)
 
-  @@index([patientId, toothNumberFdi])
-  @@map("tooth_procedures")
+  visitId       String?
+  visit         Visit?       @relation(fields: [visitId], references: [id])
+
+  performedById String?
+  performedBy   User?        @relation("PerformedBy", fields: [performedById], references: [id])
+
+  procedure     String       // نوع الإجراء: حشو، قلع، تنظيف، تركيب تاج...
+  statusAfter   String?      // حالة السن بعد الإجراء
+  notes         String?
+  procedureDate DateTime     @default(now())
+
+  createdAt     DateTime     @default(now())
+
+  @@index([toothRecordId])
+  @@map("tooth_history")
+}
+
+// ==================== الفواتير ====================
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
 }
 
 model Invoice {
-  id              String        @id @default(cuid())
-  patientId       String
-  patient         Patient       @relation(fields: [patientId], references: [id])
-  treatmentPlanId String?
-  treatmentPlan   TreatmentPlan? @relation(fields: [treatmentPlanId], references: [id])
+  id             String        @id @default(uuid())
+  patientId      String
+  patient        Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  amount        Decimal       @db.Decimal(10, 2)
-  paidAmount    Decimal       @default(0) @db.Decimal(10, 2)
-  status        InvoiceStatus @default(UNPAID)
-  issuedAt      DateTime      @default(now())
+  visitId        String?       @unique
+  visit          Visit?        @relation(fields: [visitId], references: [id])
 
-  payments Payment[]
-
-  @@map("invoices")
-}
-
-model Payment {
-  id             String        @id @default(cuid())
-  invoiceId      String
-  invoice        Invoice       @relation(fields: [invoiceId], references: [id])
+  treatmentType  String        // نوع العلاج المفوتر: زراعة، تقويم، حشو... (السعر يعتمد على النوع وليس عدد الزيارات)
+  description    String?
   amount         Decimal       @db.Decimal(10, 2)
-  method         PaymentMethod @default(CASH)
-  paidAt         DateTime      @default(now())
-  receivedById   String
-  receivedBy     User          @relation("ReceivedBy", fields: [receivedById], references: [id])
+  paidAmount     Decimal       @default(0) @db.Decimal(10, 2)
+  status         InvoiceStatus @default(UNPAID)
 
-  @@map("payments")
-}
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-// ---------- WhatsApp Integration ----------
-
-model WhatsAppLog {
-  id            String              @id @default(cuid())
-  patientId     String
-  patient       Patient             @relation(fields: [patientId], references: [id])
-  appointmentId String?
-  appointment   Appointment?        @relation(fields: [appointmentId], references: [id])
-  messageType   WhatsAppMessageType
-  status        WhatsAppStatus      @default(PENDING)
-  sentAt        DateTime?
-  createdAt     DateTime            @default(now())
-
-  @@map("whatsapp_logs")
+  @@index([patientId])
+  @@map("invoices")
 }
